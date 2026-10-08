@@ -1,23 +1,25 @@
-# OmaLink 0.1.0 preview
+# OmaLink 0.1.0 test release
 
-Use your Omarchy desktop from your Android phone.
+OmaLink lets you control your Omarchy computer from an Android phone.
 
-Open an app window or a full monitor, zoom and move around, and control it with touch and desktop keys. Open multiple persistent terminals, paste commands, and transfer files using your desktop account's existing permissions.
+## Functions
 
-## Included
+- View one window or a full monitor.
+- Select a window from its preview image.
+- Click, right-click, drag, scroll, zoom, and move the view.
+- Enter text with the phone keyboard.
+- Use desktop keys, including Super, Shift, arrows, Tab, and F1 to F12.
+- Open multiple terminal sessions. Sessions stay open when the phone disconnects.
+- Transfer files and folders with your computer account's permissions.
+- Copy text and images between clipboards while the app is on the screen.
+- Save computer connections and change the app settings.
 
-- Window previews and adaptive streaming
-- Tap, right-click, drag, scroll, zoom and pan
-- Desktop modifiers, arrows, Tab and function keys
-- Persistent tmux sessions and direct phone keyboard input
-- File and folder transfers with multiple selection
-- Text and image clipboard synchronization
-- Saved desktops, themes and configurable controls
+## Installation
 
-## Getting started
+Follow the [README](../README.md) to build and install the software. The default connection method uses Tailscale on both devices.
 
-Build the host on your Omarchy computer and install the Android APK built from this source. Connect both devices through Tailscale and enter the endpoint details printed by the host. The [README](../README.md) has the commands.
+This is a test release. Some dialog windows need separate selection. Clipboard and file transfer functions need more phone tests. Rotation during startup can require an app restart.
 
-This is an early preview. Separate dialogs sometimes need manual selection, several clipboard and transfer flows need broader phone testing, and rotation during cold startup can require reopening the app. See [known issues](phone-test.md).
+See the [test report](phone-test.md) for results and known problems.
 
-The source includes the customized Hypr-RDP backend and IronRDP code used by OmaLink. Project code is MIT licensed; dependencies retain their own licenses.
+OmaLink code uses the MIT license. Included projects keep their own licenses.

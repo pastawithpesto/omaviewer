@@ -1,24 +1,67 @@
-# Verification and known issues
+# Test results and known problems
 
-## Early preview validation
+## Build results
 
-- Host release, customized backend release and ARM64 debug APK builds passed from the clean checkout. GitHub Actions has not been run because the repository remains local.
-- The clean Git checkout passed 832 Rust tests: 69 Android, 33 host, 21 shared and 709 backend. Four backend tests that need specific hardware or mounts were ignored. Toolchains and dependency/build caches were supplied externally; no SDK or build output is part of the checkout.
-- 69 Android, 33 host and 21 shared Rust tests passed before release preparation.
-- The ARM64 APK was installed on a physical Motorola phone over Wi-Fi ADB.
-- The app reconnected over Tailscale with saved settings preserved.
-- Settings were checked in portrait and landscape. The landscape menu scrolls to its lower controls.
-- Disabling image clipboard sync survived a force-stop and relaunch. Both clipboard switches were restored afterward.
-- A separately installed host worked from a path containing spaces, with custom loopback ports, username, runtime directory, bitrate and upload chunk size. CLI FPS settings overrode JSON.
-- Earlier device tests covered direct capture, tap-then-hold right-click, dragging, terminal keyboard input, persistent sessions, and saving multiple files and a folder with byte-for-byte comparison.
+Tests used a clean Git checkout. The computer supplied the build tools and existing dependency caches.
 
-CI adds repeatable build and unit-test coverage. It does not replace an actual Hyprland session and phone.
+These builds passed:
 
-## Remaining device coverage
+- Host release build
+- Modified Hypr-RDP release build
+- ARM64 Android debug APK
 
-- Image clipboard round trips, Android Share and interrupted SAF transfer recovery
-- Bluetooth keyboards, multiple physical monitors and additional Android devices
-- Automatic following of separate native and portal dialogs
-- Rotation immediately during cold launch can end the native activity; force-stop and reopen. Rotation after startup worked. Native-loop failures are logged for diagnosis.
+The source repository does not contain SDKs or build outputs. GitHub Actions has not run. The repository is still local.
 
-The original local test journal and desktop screenshots contained personal machine details and are excluded from this public source snapshot.
+## Automated tests
+
+| Component | Passed | Skipped |
+| --- | --- | --- |
+| Android | 69 | 0 |
+| Host | 33 | 0 |
+| Shared code | 21 | 0 |
+| Hypr-RDP | 709 | 4 |
+| Total | 832 | 4 |
+
+Four Hypr-RDP tests need specific hardware or mounted file systems. These tests did not run.
+
+## Phone tests
+
+Tests used a Motorola ARM64 phone.
+
+- The APK installed through Wi-Fi ADB.
+- The app connected through Tailscale.
+- Saved settings remained after an app restart.
+- The Settings menu worked in portrait and landscape views.
+- The landscape menu scrolled to its lower controls.
+- The image clipboard switch kept its setting after a force-stop and restart.
+
+Earlier tests checked window capture, right-click, dragging, keyboard input, and terminal sessions. File tests saved two files and a folder. Each saved file matched the source file, byte for byte.
+
+## Host configuration tests
+
+A separate host installation used a directory name that contained spaces.
+
+Tests confirmed these settings:
+
+- Connection ports and username
+- Runtime directory
+- Video bitrate
+- Upload chunk size
+- Command-line FPS value in place of the JSON value
+
+## Tests still required
+
+- Image clipboard transfers in both directions
+- Android Share
+- File transfer recovery after a connection stops
+- Bluetooth keyboards
+- Multiple physical monitors
+- More phone models
+
+## Known problems
+
+Some separate dialog windows need manual selection. Automatic selection of these windows is not complete.
+
+Rotation during app startup closed the app in one test. A force-stop and restart restored it. Rotation after startup worked.
+
+The local test journal contained personal machine details. This repository contains a summary of the results.

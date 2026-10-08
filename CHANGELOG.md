@@ -1,7 +1,9 @@
-# Changelog
+# Change log
 
-## 0.1.0 preview
+## 0.1.0 test release
 
-First public source snapshot of OmaLink for Omarchy and Android.
+Prepared the first source release for Omarchy and Android.
 
-Includes window and monitor sharing, adaptive streaming, desktop input controls, saved desktops, persistent terminals, clipboard synchronization, file transfer and configurable appearance. See the README for setup and known limits.
+Added window and monitor views, touch controls, desktop keys, saved connections, and terminal sessions. Added clipboard transfers, file transfers, and app settings.
+
+See the [README](README.md) for installation steps and known limits.

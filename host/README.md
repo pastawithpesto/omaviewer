@@ -56,12 +56,12 @@ windowlink-host check --backend /opt/omalink/bin/hypr-rdp
 | `runtime_dir` | `--runtime-dir DIR` | `$XDG_RUNTIME_DIR`, otherwise `~/.cache/omalink/runtime` |
 | `password_file` | `--password-file FILE` | `windowlink-hypr-rdp.password` inside runtime directory |
 | `endpoint_file` | `--endpoint-file FILE` | `windowlink-main-endpoint.json` inside runtime directory |
-| `fps` | `--fps N` | `30`; 1–240 frames/second |
-| `bitrate` | `--bitrate BPS` | `10000000`; 1–1000000000 bits/second |
+| `fps` | `--fps N` | `30`; 1 to 240 frames/second |
+| `bitrate` | `--bitrate BPS` | `10000000`; 1 to 1000000000 bits/second |
 | `text_clipboard_max_bytes` | `--text-clipboard-max-bytes N` | `1048576` (1 MiB) |
 | `image_clipboard_max_bytes` | `--image-clipboard-max-bytes N` | `33554432` (32 MiB encoded) |
-| `transfer_chunk_max_bytes` | `--transfer-chunk-max-bytes N` | `4194304` (4 MiB); maximum upload PATCH chunk; 64 KiB–64 MiB |
-| `terminal_history_lines` | `--terminal-history-lines N` | `10000`; 1–1000000 |
+| `transfer_chunk_max_bytes` | `--transfer-chunk-max-bytes N` | `4194304` (4 MiB); maximum upload PATCH chunk; 64 KiB to 64 MiB |
+| `terminal_history_lines` | `--terminal-history-lines N` | `10000`; 1 to 1000000 |
 
 Clipboard byte limits must be between 1 and 268435456 (256 MiB). The transfer
 chunk limit must be between 65536 (64 KiB) and 67108864 (64 MiB) and is
