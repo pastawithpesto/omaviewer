@@ -1,0 +1,792 @@
+use std::io::ErrorKind;
+use std::os::fd::AsRawFd;
+use std::os::fd::FromRawFd;
+use std::os::unix::io::OwnedFd;
+use std::sync::Arc;
+
+use anyhow::{bail, Context, Result};
+use ironrdp_server::{DesktopSize, DisplayUpdate};
+use tokio::sync::mpsc;
+
+use super::CaptureMode;
+use crate::egfx::{EgfxShared, H264BackendPolicy, H264RateControl};
+use crate::input::{OutputLayoutSnapshot, SharedOutputLayout};
+pub(crate) use output::{
+    create_headless_output, headless_monitor_rule, list_stale_headless_outputs, output_info,
+    wait_for_output_size, HeadlessOutputGuard,
+};
+use wayland_client::Connection;
+
+#[cfg(feature = "vaapi")]
+mod dmabuf_capture;
+mod ext;
+mod output;
+mod state;
+mod wlr;
+
+use state::AppState;
+
+/// Read the compositor's buffer constraints for an exact foreign toplevel.
+/// This runs before RDP negotiation so the framebuffer can match the source.
+pub(crate) fn toplevel_info(output_name: &str, stable_id: &str) -> Result<CaptureInfo> {
+    let conn = Connection::connect_to_env().context("failed to connect to Wayland display")?;
+    let mut event_queue = conn.new_event_queue::<AppState>();
+    let qh = event_queue.handle();
+    let _registry = conn.display().get_registry(&qh, ());
+    let (tx, _rx) = mpsc::channel(1);
+    let mut state = AppState::new(
+        tx,
+        output_name.to_string(),
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    );
+    event_queue
+        .roundtrip(&mut state)
+        .context("Wayland globals roundtrip failed")?;
+    event_queue
+        .roundtrip(&mut state)
+        .context("foreign toplevel list roundtrip failed")?;
+
+    let capture_mgr = state
+        .capture_manager
+        .as_ref()
+        .context("ext_image_copy_capture_manager_v1 not available")?;
+    let source_mgr = state
+        .toplevel_source_manager
+        .as_ref()
+        .context("ext_foreign_toplevel_image_capture_source_manager_v1 not available")?;
+    let handle = state
+        .toplevels
+        .iter()
+        .find(|item| item.identifier.as_deref() == Some(stable_id))
+        .map(|item| item.handle.clone())
+        .with_context(|| {
+            format!(
+                "toplevel stable identifier '{}' is not available",
+                stable_id
+            )
+        })?;
+    let source = source_mgr.create_source(&handle, &qh, ());
+    let session = capture_mgr.create_session(
+        &source,
+        wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_manager_v1::Options::empty(),
+        &qh,
+        (),
+    );
+    state.session = Some(session);
+    event_queue
+        .roundtrip(&mut state)
+        .context("toplevel buffer constraints roundtrip failed")?;
+    event_queue
+        .roundtrip(&mut state)
+        .context("toplevel buffer constraints roundtrip failed (2nd)")?;
+    let (width, height) = (state.buffer_width, state.buffer_height);
+    if width == 0 || height == 0 {
+        bail!(
+            "toplevel '{}' reported invalid capture dimensions {}x{}",
+            stable_id,
+            width,
+            height
+        );
+    }
+    Ok(CaptureInfo {
+        width,
+        height,
+        output_name: output_name.to_string(),
+    })
+}
+
+const CAPTURE_SESSION_RESTART_LIMIT: u32 = 5;
+
+/// A session that ran healthily this long since its last restart has paid
+/// off its restart debt. External geometry changes are legitimate and
+/// unbounded over a long session; the budget only guards against restart
+/// loops, not lifetime totals.
+const CAPTURE_RESTART_BUDGET_RESET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Pause after a failed frame: the compositor fails at round-trip speed
+/// when the source is gone or resizing, and retrying instantly burns a
+/// core on both sides.
+pub(super) const CAPTURE_FAILED_FRAME_BACKOFF: std::time::Duration =
+    std::time::Duration::from_millis(100);
+/// Consecutive failed frames before escalating to a session restart.
+pub(super) const CAPTURE_FAILED_FRAME_LIMIT: u32 = 50;
+
+/// The compositor kept failing frames past the in-loop retry budget; a
+/// session restart is the next escalation step.
+#[derive(Debug)]
+pub(super) struct FramesRepeatedlyFailed;
+
+impl std::fmt::Display for FramesRepeatedlyFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "compositor kept failing capture frames")
+    }
+}
+
+impl std::error::Error for FramesRepeatedlyFailed {}
+
+fn replenished_restarts(restarts: u32, since_last_restart: std::time::Duration) -> u32 {
+    if since_last_restart >= CAPTURE_RESTART_BUDGET_RESET {
+        0
+    } else {
+        restarts
+    }
+}
+
+fn discard_deferred_after_failed_capture<T>(failed: bool, deferred: &mut Option<T>) {
+    if failed {
+        *deferred = None;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CaptureRestartDecision {
+    Restart { restarts: u32 },
+    GiveUp { restarts: u32 },
+    Propagate,
+}
+
+struct MmapRegion {
+    ptr: *mut libc::c_void,
+    len: usize,
+}
+
+impl MmapRegion {
+    fn new(fd: std::os::unix::io::RawFd, len: usize) -> Result<Self> {
+        let ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                len,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
+        };
+        if ptr == libc::MAP_FAILED {
+            bail!("mmap failed");
+        }
+        Ok(Self { ptr, len })
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr as *const u8, self.len) }
+    }
+}
+
+impl Drop for MmapRegion {
+    fn drop(&mut self) {
+        unsafe {
+            libc::munmap(self.ptr, self.len);
+        }
+    }
+}
+
+pub struct CaptureInfo {
+    pub width: u32,
+    pub height: u32,
+    /// Name of the output being captured
+    pub output_name: String,
+}
+
+/// Verify that a named output exists in Hyprland monitors.
+fn verify_output_exists(output_name: &str) -> Result<()> {
+    output_info(output_name).map(|_| ())
+}
+
+fn existing_presentation_for_capture_refresh(
+    snapshot: Option<&OutputLayoutSnapshot>,
+) -> Option<(u32, u32)> {
+    snapshot.map(|snapshot| {
+        let presentation = snapshot.presentation_geometry.presentation();
+        (presentation.width, presentation.height)
+    })
+}
+
+fn refresh_output_layout_for_capture(
+    output_layout: &SharedOutputLayout,
+    output_name: &str,
+    update_with_presentation: impl FnOnce(&SharedOutputLayout, &str, (u32, u32)) -> Result<()>,
+    update_identity: impl FnOnce(&SharedOutputLayout, &str) -> Result<()>,
+) -> Result<()> {
+    let snapshot = output_layout.snapshot();
+    if let Some(presentation) = existing_presentation_for_capture_refresh(snapshot.as_ref()) {
+        update_with_presentation(output_layout, output_name, presentation)
+    } else {
+        update_identity(output_layout, output_name)
+    }
+}
+
+/// Start screen capture on a background thread.
+/// Start capture on the given output name.
+/// The caller is responsible for creating/managing the headless output.
+#[allow(clippy::too_many_arguments)]
+pub async fn start_capture(
+    tx: mpsc::Sender<DisplayUpdate>,
+    capture_dead: std::sync::Arc<tokio::sync::Notify>,
+    capture_mode: CaptureMode,
+    egfx_shared: Option<Arc<EgfxShared>>,
+    output_layout: Arc<SharedOutputLayout>,
+    bitrate: u32,
+    quality: u8,
+    rate_control: H264RateControl,
+    fps: u32,
+    h264_backend: H264BackendPolicy,
+    output_name: String,
+    pending_initial_resize: Option<DesktopSize>,
+    stop_flag: Arc<std::sync::atomic::AtomicBool>,
+    display_suppressed: Arc<std::sync::atomic::AtomicBool>,
+    target_toplevel: Option<String>,
+) -> Result<(CaptureInfo, std::thread::JoinHandle<()>)> {
+    let (info_tx, info_rx) = tokio::sync::oneshot::channel();
+
+    let stop_flag_at_exit = std::sync::Arc::clone(&stop_flag);
+    let update_rx_probe = tx.clone();
+    let handle = std::thread::Builder::new()
+        .name("wayland-capture".into())
+        .spawn(move || {
+            if let Err(e) = capture_thread(
+                tx,
+                info_tx,
+                capture_mode,
+                egfx_shared,
+                output_layout,
+                bitrate,
+                quality,
+                rate_control,
+                fps,
+                h264_backend,
+                output_name,
+                pending_initial_resize,
+                stop_flag,
+                display_suppressed,
+                target_toplevel,
+            ) {
+                tracing::error!("Capture thread error: {:#}", e);
+            }
+            // An exit nobody requested must surface as a disconnect: the
+            // display half keeps a live update sender, so the channel never
+            // closes on its own and the session would freeze instead.
+            // An exit because the update receiver is already gone is not a
+            // death: reactivation and disconnect drop the receiver first and
+            // a fresh capture follows.
+            if !stop_flag_at_exit.load(std::sync::atomic::Ordering::Acquire) {
+                if update_rx_probe.is_closed() {
+                    tracing::debug!("Capture thread exited after its update receiver closed");
+                } else {
+                    tracing::error!("Capture thread died with a live session; disconnecting it");
+                    capture_dead.notify_one();
+                }
+            }
+        })?;
+
+    let info = info_rx.await.context("capture thread failed to start")??;
+    Ok((info, handle))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn capture_thread(
+    tx: mpsc::Sender<DisplayUpdate>,
+    info_tx: tokio::sync::oneshot::Sender<Result<CaptureInfo>>,
+    capture_mode: CaptureMode,
+    egfx_shared: Option<Arc<EgfxShared>>,
+    output_layout: Arc<SharedOutputLayout>,
+    bitrate: u32,
+    quality: u8,
+    rate_control: H264RateControl,
+    fps: u32,
+    h264_backend: H264BackendPolicy,
+    output_name: String,
+    pending_initial_resize: Option<DesktopSize>,
+    stop_flag: Arc<std::sync::atomic::AtomicBool>,
+    display_suppressed: Arc<std::sync::atomic::AtomicBool>,
+    target_toplevel: Option<String>,
+) -> Result<()> {
+    let mut info_tx = Some(info_tx);
+    let mut restarts = 0u32;
+    let mut last_restart: Option<std::time::Instant> = None;
+
+    loop {
+        let result = capture_thread_inner(
+            tx.clone(),
+            &mut info_tx,
+            capture_mode,
+            egfx_shared.clone(),
+            Arc::clone(&output_layout),
+            bitrate,
+            quality,
+            rate_control,
+            fps,
+            h264_backend,
+            output_name.clone(),
+            pending_initial_resize,
+            Arc::clone(&stop_flag),
+            Arc::clone(&display_suppressed),
+            target_toplevel.clone(),
+        );
+
+        match result {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                if let Some(at) = last_restart {
+                    restarts = replenished_restarts(restarts, at.elapsed());
+                }
+                match capture_session_restart_decision(
+                    &err,
+                    stop_flag.load(std::sync::atomic::Ordering::Acquire),
+                    restarts,
+                ) {
+                    CaptureRestartDecision::Restart {
+                        restarts: next_restarts,
+                    } => {
+                        restarts = next_restarts;
+                        last_restart = Some(std::time::Instant::now());
+                        tracing::warn!(
+                            restarts,
+                            "Capture session parameters changed; restarting capture thread"
+                        );
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    CaptureRestartDecision::GiveUp {
+                        restarts: next_restarts,
+                    } => {
+                        restarts = next_restarts;
+                        tracing::warn!(
+                            restarts,
+                            "Capture session parameters changed; restart limit reached"
+                        );
+                        send_capture_start_error(&mut info_tx, &err);
+                        return Err(err);
+                    }
+                    CaptureRestartDecision::Propagate => {
+                        send_capture_start_error(&mut info_tx, &err);
+                        return Err(err);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn capture_session_geometry_changed(err: &anyhow::Error) -> bool {
+    if wlr::is_buffer_parameters_changed(err) {
+        return true;
+    }
+
+    #[cfg(feature = "vaapi")]
+    {
+        if dmabuf_capture::is_capture_session_geometry_changed(err) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn capture_session_restart_decision(
+    err: &anyhow::Error,
+    stop_flag_set: bool,
+    restarts: u32,
+) -> CaptureRestartDecision {
+    let restartable = capture_session_geometry_changed(err) || err.is::<FramesRepeatedlyFailed>();
+    if stop_flag_set || !restartable {
+        return CaptureRestartDecision::Propagate;
+    }
+
+    let restarts = restarts.saturating_add(1);
+    if restarts >= CAPTURE_SESSION_RESTART_LIMIT {
+        CaptureRestartDecision::GiveUp { restarts }
+    } else {
+        CaptureRestartDecision::Restart { restarts }
+    }
+}
+
+fn send_capture_start_error(
+    info_tx: &mut Option<tokio::sync::oneshot::Sender<Result<CaptureInfo>>>,
+    err: &anyhow::Error,
+) {
+    if let Some(tx) = info_tx.take() {
+        let _ = tx.send(Err(anyhow::anyhow!("{:#}", err)));
+    }
+}
+
+fn create_shm_fd(size: usize) -> Result<OwnedFd> {
+    let fd = unsafe { libc::memfd_create(c"hypr-rdp-shm".as_ptr(), libc::MFD_CLOEXEC) };
+    if fd < 0 {
+        bail!("memfd_create failed");
+    }
+    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    let ret = unsafe { libc::ftruncate(fd.as_raw_fd(), size as libc::off_t) };
+    if ret < 0 {
+        bail!("ftruncate failed");
+    }
+    Ok(fd)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn capture_thread_inner(
+    tx: mpsc::Sender<DisplayUpdate>,
+    info_tx: &mut Option<tokio::sync::oneshot::Sender<Result<CaptureInfo>>>,
+    capture_mode: CaptureMode,
+    egfx_shared: Option<Arc<EgfxShared>>,
+    output_layout: Arc<SharedOutputLayout>,
+    bitrate: u32,
+    quality: u8,
+    rate_control: H264RateControl,
+    fps: u32,
+    h264_backend: H264BackendPolicy,
+    output_name: String,
+    pending_initial_resize: Option<DesktopSize>,
+    stop_flag: Arc<std::sync::atomic::AtomicBool>,
+    display_suppressed: Arc<std::sync::atomic::AtomicBool>,
+    target_toplevel: Option<String>,
+) -> Result<()> {
+    if target_toplevel.is_some() && capture_mode != CaptureMode::Ext {
+        bail!("foreign toplevel capture requires ext-image-copy-capture-v1");
+    }
+    verify_output_exists(&output_name)?;
+
+    if target_toplevel.is_none() {
+        refresh_output_layout_for_capture(
+            &output_layout,
+            &output_name,
+            SharedOutputLayout::update_from_output_with_presentation,
+            SharedOutputLayout::update_from_output,
+        )
+        .context("failed to refresh input layout for output")?;
+    }
+
+    let conn = Connection::connect_to_env().context("failed to connect to Wayland display")?;
+    let mut event_queue = conn.new_event_queue::<AppState>();
+    let qh = event_queue.handle();
+
+    let display = conn.display();
+    let _registry = display.get_registry(&qh, ());
+
+    let mut state = AppState::new(tx, output_name.clone(), stop_flag);
+
+    // First roundtrip: collect globals
+    event_queue
+        .roundtrip(&mut state)
+        .context("Wayland roundtrip failed")?;
+
+    // Second roundtrip: get output names
+    event_queue
+        .roundtrip(&mut state)
+        .context("Wayland roundtrip (2nd) failed")?;
+
+    let wl_output = state
+        .target_output
+        .as_ref()
+        .context(format!(
+            "output '{}' not found in Wayland globals",
+            state.target_output_name
+        ))?
+        .clone();
+    let shm = state.shm.as_ref().context("wl_shm not available")?.clone();
+
+    match capture_mode {
+        CaptureMode::Ext => ext::capture_loop_ext(
+            &conn,
+            &mut event_queue,
+            &mut state,
+            &qh,
+            &wl_output,
+            &shm,
+            &output_name,
+            Arc::clone(&output_layout),
+            egfx_shared,
+            info_tx,
+            bitrate,
+            quality,
+            rate_control,
+            fps,
+            h264_backend,
+            pending_initial_resize,
+            Arc::clone(&display_suppressed),
+            target_toplevel.as_deref(),
+        ),
+        CaptureMode::Wlr => {
+            let screencopy_mgr = state
+                .screencopy_manager
+                .as_ref()
+                .context("zwlr_screencopy_manager_v1 not available")?
+                .clone();
+            wlr::capture_loop_wlr(
+                &conn,
+                &mut event_queue,
+                &mut state,
+                &qh,
+                &wl_output,
+                &shm,
+                &screencopy_mgr,
+                &output_name,
+                Arc::clone(&output_layout),
+                egfx_shared,
+                info_tx,
+                bitrate,
+                quality,
+                rate_control,
+                fps,
+                h264_backend,
+                pending_initial_resize,
+                Arc::clone(&display_suppressed),
+            )
+        }
+    }
+}
+
+/// Poll timeout (ms) for Wayland event dispatch. Controls shutdown responsiveness.
+const POLL_TIMEOUT_MS: i32 = 100;
+
+/// Poll-based Wayland event dispatch with timeout.
+///
+/// Dispatches any already-queued events, then polls the Wayland fd for new events
+/// up to `timeout_ms`. This allows the capture thread to check shutdown conditions
+/// periodically instead of blocking indefinitely in `blocking_dispatch`.
+fn poll_dispatch(
+    event_queue: &mut wayland_client::EventQueue<AppState>,
+    state: &mut AppState,
+    timeout_ms: i32,
+) -> Result<()> {
+    // Dispatch any already-queued events
+    event_queue
+        .dispatch_pending(state)
+        .context("dispatch_pending failed")?;
+
+    // Try to read more events from the Wayland socket
+    if let Some(guard) = event_queue.prepare_read() {
+        let fd = guard.connection_fd();
+        let mut pollfd = libc::pollfd {
+            fd: fd.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let ret = unsafe { libc::poll(&mut pollfd, 1, timeout_ms) };
+        if ret > 0 {
+            match guard.read() {
+                Ok(_) => {}
+                Err(e) if is_wayland_would_block(&e) => return Ok(()),
+                Err(e) => return Err(anyhow::anyhow!("Wayland read: {}", e)),
+            }
+            event_queue
+                .dispatch_pending(state)
+                .context("dispatch_pending after read")?;
+        } else if ret < 0 {
+            let errno = std::io::Error::last_os_error();
+            if errno.raw_os_error() != Some(libc::EINTR) {
+                bail!("poll failed on Wayland fd: {}", errno);
+            }
+            // EINTR: interrupted by signal, retry next call
+        }
+        // ret == 0: timeout (guard dropped = cancel)
+    }
+    // prepare_read() returned None: events already dispatched above
+
+    Ok(())
+}
+
+fn display_suppressed(flag: &std::sync::atomic::AtomicBool, first_frame_sent: bool) -> bool {
+    first_frame_sent && flag.load(std::sync::atomic::Ordering::Acquire)
+}
+
+fn wait_for_display_resume(
+    flag: &std::sync::atomic::AtomicBool,
+    state: &AppState,
+    first_frame_sent: bool,
+) -> bool {
+    while display_suppressed(flag, first_frame_sent) && !state.should_stop() {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    !state.should_stop()
+}
+
+fn is_wayland_would_block(err: &wayland_client::backend::WaylandError) -> bool {
+    match err {
+        wayland_client::backend::WaylandError::Io(io) => {
+            io.kind() == ErrorKind::WouldBlock || io.raw_os_error() == Some(libc::EAGAIN)
+        }
+        wayland_client::backend::WaylandError::Protocol(_) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        capture_session_restart_decision, discard_deferred_after_failed_capture,
+        refresh_output_layout_for_capture, replenished_restarts, wlr, CaptureRestartDecision,
+        FramesRepeatedlyFailed, CAPTURE_RESTART_BUDGET_RESET,
+    };
+    use crate::input::SharedOutputLayout;
+
+    fn buffer_parameters_changed_error() -> anyhow::Error {
+        anyhow::Error::new(wlr::BufferParametersChanged)
+    }
+
+    #[test]
+    fn wlr_buffer_parameter_change_restarts_capture_until_limit() {
+        let err = buffer_parameters_changed_error();
+
+        assert_eq!(
+            capture_session_restart_decision(&err, false, 0),
+            CaptureRestartDecision::Restart { restarts: 1 }
+        );
+        assert_eq!(
+            capture_session_restart_decision(&err, false, 3),
+            CaptureRestartDecision::Restart { restarts: 4 }
+        );
+        assert_eq!(
+            capture_session_restart_decision(&err, false, 4),
+            CaptureRestartDecision::GiveUp { restarts: 5 }
+        );
+    }
+
+    #[test]
+    fn wlr_buffer_parameter_change_does_not_restart_during_shutdown() {
+        let err = buffer_parameters_changed_error();
+
+        assert_eq!(
+            capture_session_restart_decision(&err, true, 0),
+            CaptureRestartDecision::Propagate
+        );
+    }
+
+    #[test]
+    fn wlr_restart_policy_ignores_unrelated_errors() {
+        let err = anyhow::anyhow!("Wayland read failed");
+
+        assert_eq!(
+            capture_session_restart_decision(&err, false, 0),
+            CaptureRestartDecision::Propagate
+        );
+    }
+
+    #[cfg(feature = "vaapi")]
+    #[test]
+    fn dmabuf_source_geometry_change_restarts_capture_until_limit() {
+        let err = anyhow::Error::new(super::dmabuf_capture::DmaBufCaptureSessionGeometryChanged);
+
+        assert_eq!(
+            capture_session_restart_decision(&err, false, 0),
+            CaptureRestartDecision::Restart { restarts: 1 }
+        );
+        assert_eq!(
+            capture_session_restart_decision(&err, false, 4),
+            CaptureRestartDecision::GiveUp { restarts: 5 }
+        );
+    }
+
+    #[test]
+    fn restart_budget_replenishes_after_a_healthy_period() {
+        use std::time::Duration;
+
+        assert_eq!(replenished_restarts(4, Duration::from_secs(5)), 4);
+        assert_eq!(replenished_restarts(4, CAPTURE_RESTART_BUDGET_RESET), 0);
+        assert_eq!(replenished_restarts(0, Duration::from_secs(0)), 0);
+    }
+
+    #[test]
+    fn repeated_frame_failures_are_a_restartable_error() {
+        let err = anyhow::Error::new(FramesRepeatedlyFailed);
+
+        assert_eq!(
+            capture_session_restart_decision(&err, false, 0),
+            CaptureRestartDecision::Restart { restarts: 1 }
+        );
+        assert_eq!(
+            capture_session_restart_decision(&err, true, 0),
+            CaptureRestartDecision::Propagate
+        );
+    }
+
+    #[test]
+    fn failed_capture_discards_deferred_buffer_before_reuse() {
+        let mut deferred = Some(7u8);
+        discard_deferred_after_failed_capture(false, &mut deferred);
+        assert_eq!(deferred, Some(7));
+
+        discard_deferred_after_failed_capture(true, &mut deferred);
+        assert_eq!(deferred, None);
+    }
+
+    #[test]
+    fn capture_refresh_reuses_existing_presentation_geometry() {
+        let layout = SharedOutputLayout::new();
+        layout
+            .update_snapshot_for_test("DP-1", 3840, 2160, 3840, 2160, 0, 0, (1920, 1080))
+            .expect("initial scaled layout");
+
+        refresh_output_layout_for_capture(
+            &layout,
+            "DP-1",
+            |layout, output_name, presentation| {
+                layout.update_snapshot_for_test(
+                    output_name,
+                    2560,
+                    1440,
+                    2560,
+                    1440,
+                    0,
+                    0,
+                    presentation,
+                )
+            },
+            |_layout, _output_name| panic!("scaled refresh must preserve presentation geometry"),
+        )
+        .expect("refresh preserves presentation");
+
+        let snapshot = layout.snapshot().expect("refreshed snapshot");
+        let presentation = snapshot.presentation_geometry.presentation();
+        let source = snapshot.presentation_geometry.source();
+
+        assert_eq!((source.width, source.height), (2560, 1440));
+        assert_eq!((presentation.width, presentation.height), (1920, 1080));
+        assert_eq!(snapshot.geometry_generation, 1);
+    }
+
+    #[test]
+    fn capture_refresh_without_existing_snapshot_uses_identity_geometry() {
+        let layout = SharedOutputLayout::new();
+
+        refresh_output_layout_for_capture(
+            &layout,
+            "DP-1",
+            |_layout, _output_name, _presentation| {
+                panic!("initial refresh must not preserve missing presentation")
+            },
+            |layout, output_name| {
+                layout.update_snapshot_for_test(
+                    output_name,
+                    1920,
+                    1080,
+                    1920,
+                    1080,
+                    0,
+                    0,
+                    (1920, 1080),
+                )
+            },
+        )
+        .expect("initial refresh uses identity geometry");
+
+        let snapshot = layout.snapshot().expect("initial snapshot");
+        let presentation = snapshot.presentation_geometry.presentation();
+        let source = snapshot.presentation_geometry.source();
+
+        assert_eq!((source.width, source.height), (1920, 1080));
+        assert_eq!((presentation.width, presentation.height), (1920, 1080));
+        assert_eq!(snapshot.geometry_generation, 0);
+    }
+}
+
+#[cfg(test)]
+mod display_suppression_tests {
+    use super::display_suppressed;
+    use std::sync::atomic::AtomicBool;
+
+    #[test]
+    fn suppression_does_not_block_the_initial_frame() {
+        let flag = AtomicBool::new(true);
+        assert!(!display_suppressed(&flag, false));
+        assert!(display_suppressed(&flag, true));
+    }
+}

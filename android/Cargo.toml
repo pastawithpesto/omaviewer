@@ -1,0 +1,46 @@
+[package]
+name = "windowlink-android"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "windowlink"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "android-native-activity", "x11", "wayland"] }
+egui = "0.36"
+alacritty_terminal = "0.26"
+ironrdp-client = { version = "0.1", features = ["rustls", "qoi", "qoiz", "egfx-openh264"] }
+ironrdp-pdu = "0.9"
+smallvec = "1.15"
+log = "0.4"
+serde_json = "1"
+sha2 = "0.10"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+windowlink-shared = { path = "../shared" }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.15"
+android-activity = { version = "0.6", features = ["native-activity"] }
+jni = "0.22.4"
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+strip = true
+panic = "abort"
+
+# Vendored IronRDP fork with the RDPEGFX graphics-pipeline client and QOI codecs
+# (see vendor/ironrdp). Kept as patches so the fork workspace's internal crates
+# resolve to the same sources instead of mixing with crates.io copies.
+[patch.crates-io]
+ironrdp-client = { path = "../vendor/ironrdp/crates/ironrdp-client" }
+ironrdp-pdu = { path = "../vendor/ironrdp/crates/ironrdp-pdu" }

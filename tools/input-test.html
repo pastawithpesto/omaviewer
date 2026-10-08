@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>WindowLink Input Test</title>
+<style>body{margin:0;background:#1a1b26;color:#c0caf5;font:32px sans-serif}header{position:fixed;inset:0 0 auto;background:#24283b;padding:20px;z-index:2}button,input{font:32px sans-serif;padding:20px;border:2px solid #7aa2f7;border-radius:12px;background:#31364c;color:#c0caf5}button{margin-right:20px}input{width:500px}#surface{padding-top:260px;width:4800px;height:5000px;background:repeating-linear-gradient(0deg,transparent 0 198px,#565f89 198px 200px),repeating-linear-gradient(90deg,transparent 0 198px,#565f89 198px 200px)}p{margin:50px}#status{font-size:25px;white-space:pre-wrap}</style>
+<header><button id="click">Click target</button><input id="text" placeholder="Remote typing here"><button id="next">Next target</button><div id="status"></div></header>
+<div id="surface"><p>WindowLink input test — drag in Scroll mode to move this grid.</p><p>Click and keyboard events appear above. Pan should move only the phone view.</p></div>
+<script>
+const state={clicks:0,context:0,mouseDown:0,scrollX:0,scrollY:0,keys:[],value:""};
+function update(){document.title='WLTEST '+JSON.stringify(state);document.querySelector('#status').textContent=JSON.stringify(state);}
+document.querySelector('#click').onclick=()=>{state.clicks++;update()};
+document.addEventListener('mousedown',()=>{state.mouseDown++;update()});
+document.addEventListener('contextmenu',e=>{e.preventDefault();state.context++;update()});
+document.addEventListener('keydown',e=>{state.keys.push(e.key);state.keys=state.keys.slice(-12);update()});
+document.querySelector('#text').oninput=e=>{state.value=e.target.value;update()};
+window.onscroll=()=>{state.scrollX=scrollX;state.scrollY=scrollY;update()};
+update();
+</script>

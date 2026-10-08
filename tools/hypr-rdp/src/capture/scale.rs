@@ -1,0 +1,512 @@
+use std::borrow::Cow;
+
+use anyhow::{bail, Context, Result};
+use ironrdp_server::PixelFormat;
+
+use crate::display::geometry::{PresentationGeometry, Size};
+use crate::input::OutputLayoutSnapshot;
+
+pub(super) struct PreparedPresentationFrame<'a> {
+    pub(super) data: Cow<'a, [u8]>,
+    pub(super) width: u32,
+    pub(super) height: u32,
+    pub(super) stride: u32,
+    pub(super) damage_regions: Vec<(i32, i32, i32, i32)>,
+    pub(super) geometry_generation: u32,
+}
+
+pub(super) struct PresentationGenerationAction {
+    pub(super) refresh_processor: bool,
+    pub(super) next_generation: u32,
+    pub(super) damage_regions: Vec<(i32, i32, i32, i32)>,
+}
+
+pub(super) fn prepare_presentation_frame<'a>(
+    source_data: &'a [u8],
+    source_width: u32,
+    source_height: u32,
+    source_stride: u32,
+    pixel_format: PixelFormat,
+    source_damage_regions: &[(i32, i32, i32, i32)],
+    snapshot: &OutputLayoutSnapshot,
+) -> Result<PreparedPresentationFrame<'a>> {
+    let source = Size::new(source_width, source_height).context("invalid source size")?;
+    let presentation = snapshot.presentation_geometry.presentation();
+    let geometry = if snapshot.presentation_geometry.source() == source {
+        snapshot.presentation_geometry
+    } else {
+        PresentationGeometry::new(source, presentation)
+    };
+    let damage_regions = geometry.map_source_damage(source_damage_regions);
+
+    if geometry.is_identity() {
+        let min_len = source_stride
+            .checked_mul(source_height)
+            .and_then(|len| usize::try_from(len).ok())
+            .context("source frame size overflow")?;
+        if source_data.len() < min_len {
+            bail!(
+                "source frame too small: got {} bytes, need {}",
+                source_data.len(),
+                min_len
+            );
+        }
+        return Ok(PreparedPresentationFrame {
+            data: Cow::Borrowed(source_data),
+            width: source_width,
+            height: source_height,
+            stride: source_stride,
+            damage_regions,
+            geometry_generation: snapshot.geometry_generation,
+        });
+    }
+
+    let stride = presentation
+        .width
+        .checked_mul(4)
+        .context("presentation stride overflow")?;
+    let len = stride
+        .checked_mul(presentation.height)
+        .and_then(|len| usize::try_from(len).ok())
+        .context("presentation frame size overflow")?;
+    let mut output = vec![0; len];
+    fill_black_bars(&mut output, pixel_format);
+    copy_scaled_visible_rect(source_data, source_stride, &mut output, stride, geometry)?;
+
+    Ok(PreparedPresentationFrame {
+        data: Cow::Owned(output),
+        width: presentation.width,
+        height: presentation.height,
+        stride,
+        damage_regions,
+        geometry_generation: snapshot.geometry_generation,
+    })
+}
+
+pub(super) fn dmabuf_zero_copy_allowed(snapshot: &OutputLayoutSnapshot) -> bool {
+    snapshot.presentation_geometry.is_identity()
+}
+
+pub(super) fn output_downscaling_generation_action(
+    current_generation: u32,
+    prepared: &PreparedPresentationFrame<'_>,
+) -> PresentationGenerationAction {
+    if prepared.geometry_generation != current_generation {
+        PresentationGenerationAction {
+            refresh_processor: true,
+            next_generation: prepared.geometry_generation,
+            damage_regions: vec![(0, 0, prepared.width as i32, prepared.height as i32)],
+        }
+    } else {
+        PresentationGenerationAction {
+            refresh_processor: false,
+            next_generation: current_generation,
+            damage_regions: prepared.damage_regions.clone(),
+        }
+    }
+}
+
+pub(super) fn presentation_frame_shape(
+    source_width: u32,
+    source_height: u32,
+    source_stride: u32,
+    snapshot: &OutputLayoutSnapshot,
+) -> Result<(u32, u32, u32)> {
+    let source = Size::new(source_width, source_height).context("invalid source size")?;
+    let presentation = snapshot.presentation_geometry.presentation();
+    let geometry = if snapshot.presentation_geometry.source() == source {
+        snapshot.presentation_geometry
+    } else {
+        PresentationGeometry::new(source, presentation)
+    };
+
+    if geometry.is_identity() {
+        Ok((source_width, source_height, source_stride))
+    } else {
+        let stride = presentation
+            .width
+            .checked_mul(4)
+            .context("presentation stride overflow")?;
+        Ok((presentation.width, presentation.height, stride))
+    }
+}
+
+fn fill_black_bars(output: &mut [u8], pixel_format: PixelFormat) {
+    for pixel in output.as_chunks_mut::<4>().0 {
+        pixel[0] = 0;
+        pixel[1] = 0;
+        pixel[2] = 0;
+        pixel[3] = 0;
+        match pixel_format {
+            PixelFormat::ARgb32 | PixelFormat::ABgr32 => pixel[0] = 255,
+            PixelFormat::BgrA32 | PixelFormat::RgbA32 => pixel[3] = 255,
+            PixelFormat::XRgb32
+            | PixelFormat::XBgr32
+            | PixelFormat::BgrX32
+            | PixelFormat::RgbX32 => {}
+        }
+    }
+}
+
+fn copy_scaled_visible_rect(
+    source_data: &[u8],
+    source_stride: u32,
+    output: &mut [u8],
+    output_stride: u32,
+    geometry: PresentationGeometry,
+) -> Result<()> {
+    let source = geometry.source();
+    let visible = geometry.visible_rect();
+
+    let source_stride = usize::try_from(source_stride).context("source stride out of range")?;
+    let output_stride = usize::try_from(output_stride).context("output stride out of range")?;
+    let source_required = source_stride
+        .checked_mul(source.height as usize)
+        .context("source frame size overflow")?;
+    if source_data.len() < source_required {
+        bail!(
+            "source frame too small: got {} bytes, need {}",
+            source_data.len(),
+            source_required
+        );
+    }
+    let source_row_bytes = usize::try_from(source.width)
+        .ok()
+        .and_then(|width| width.checked_mul(4))
+        .context("source row size overflow")?;
+    if source_stride < source_row_bytes {
+        bail!(
+            "source stride {} too small for width {}",
+            source_stride,
+            source.width
+        );
+    }
+
+    let source_w = u64::from(source.width);
+    let source_h = u64::from(source.height);
+    let visible_w = u64::from(visible.width);
+    let visible_h = u64::from(visible.height);
+
+    // Area-average box filter: every output pixel averages the source region
+    // it covers, so downscaling anti-aliases instead of dropping pixels the
+    // way nearest sampling does (visible as jagged text on 4K -> window-size
+    // presentations). For upscaling the box degenerates to a single source
+    // pixel, matching the previous behavior.
+    for py in visible.y..visible.bottom() {
+        let rel_y = u64::from(py - visible.y);
+        let sy0 = (rel_y * source_h) / visible_h;
+        let sy1 = (((rel_y + 1) * source_h) / visible_h)
+            .max(sy0 + 1)
+            .min(source_h);
+        let (sy0, sy1) = (sy0 as usize, sy1 as usize);
+        for px in visible.x..visible.right() {
+            let rel_x = u64::from(px - visible.x);
+            let sx0 = (rel_x * source_w) / visible_w;
+            let sx1 = (((rel_x + 1) * source_w) / visible_w)
+                .max(sx0 + 1)
+                .min(source_w);
+            let (sx0, sx1) = (sx0 as usize, sx1 as usize);
+
+            let mut sum = [0u64; 4];
+            for sy in sy0..sy1 {
+                let row = sy * source_stride;
+                for sx in sx0..sx1 {
+                    let s = row + sx * 4;
+                    sum[0] += u64::from(source_data[s]);
+                    sum[1] += u64::from(source_data[s + 1]);
+                    sum[2] += u64::from(source_data[s + 2]);
+                    sum[3] += u64::from(source_data[s + 3]);
+                }
+            }
+            let count = ((sy1 - sy0) * (sx1 - sx0)) as u64;
+
+            let output_offset = usize::try_from(py)
+                .ok()
+                .and_then(|row| row.checked_mul(output_stride))
+                .and_then(|row| row.checked_add(usize::try_from(px).ok()?.checked_mul(4)?))
+                .context("output pixel offset overflow")?;
+
+            let half = count / 2;
+            output[output_offset] = ((sum[0] + half) / count) as u8;
+            output[output_offset + 1] = ((sum[1] + half) / count) as u8;
+            output[output_offset + 2] = ((sum[2] + half) / count) as u8;
+            output[output_offset + 3] = ((sum[3] + half) / count) as u8;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::display::geometry::PresentationGeometry;
+
+    fn snapshot(source: (u32, u32), presentation: (u32, u32)) -> OutputLayoutSnapshot {
+        let source_size = Size::new(source.0, source.1).unwrap();
+        let presentation_size = Size::new(presentation.0, presentation.1).unwrap();
+        OutputLayoutSnapshot {
+            output_name: "DP-1".into(),
+            output_w: source.0,
+            output_h: source.1,
+            layout_extent_w: source.0,
+            layout_extent_h: source.1,
+            output_offset_x: 0,
+            output_offset_y: 0,
+            presentation_geometry: PresentationGeometry::new(source_size, presentation_size),
+            geometry_generation: 7,
+        }
+    }
+
+    fn frame(width: usize, height: usize, stride: usize) -> Vec<u8> {
+        let mut data = vec![0; stride * height];
+        for y in 0..height {
+            for x in 0..width {
+                let offset = y * stride + x * 4;
+                data[offset] = x as u8;
+                data[offset + 1] = y as u8;
+                data[offset + 2] = 0x80;
+                data[offset + 3] = 0xff;
+            }
+        }
+        data
+    }
+
+    #[test]
+    fn capture_scale_keeps_identity_frame_borrowed_and_damage_identity() {
+        let source = frame(4, 2, 24);
+        let prepared = prepare_presentation_frame(
+            &source,
+            4,
+            2,
+            24,
+            PixelFormat::BgrA32,
+            &[(1, 0, 2, 1)],
+            &snapshot((4, 2), (4, 2)),
+        )
+        .expect("identity frame prepares");
+
+        assert!(matches!(prepared.data, Cow::Borrowed(_)));
+        assert_eq!(prepared.width, 4);
+        assert_eq!(prepared.height, 2);
+        assert_eq!(prepared.stride, 24);
+        assert_eq!(prepared.damage_regions, vec![(1, 0, 2, 1)]);
+        assert_eq!(prepared.geometry_generation, 7);
+    }
+
+    #[test]
+    fn capture_scale_maps_source_frame_to_presentation_with_fallback_bars() {
+        let source = frame(4, 2, 16);
+        let prepared = prepare_presentation_frame(
+            &source,
+            4,
+            2,
+            16,
+            PixelFormat::BgrA32,
+            &[(0, 0, 4, 2)],
+            &snapshot((4, 2), (4, 4)),
+        )
+        .expect("scaled frame prepares");
+
+        assert!(matches!(prepared.data, Cow::Owned(_)));
+        assert_eq!(prepared.width, 4);
+        assert_eq!(prepared.height, 4);
+        assert_eq!(prepared.stride, 16);
+        assert_eq!(&prepared.data[0..4], &[0, 0, 0, 255]);
+        assert_eq!(&prepared.data[16..20], &[0, 0, 0x80, 0xff]);
+        assert_eq!(&prepared.data[48..52], &[0, 0, 0, 255]);
+    }
+
+    #[test]
+    fn capture_scale_downscale_averages_covered_source_pixels() {
+        // 2x1 black+white halves -> 1x1: the area filter must yield mid-gray;
+        // nearest sampling would return one of the extremes.
+        let mut source = vec![0u8; 8];
+        source[0..4].copy_from_slice(&[0, 0, 0, 255]);
+        source[4..8].copy_from_slice(&[255, 255, 255, 255]);
+
+        let prepared = prepare_presentation_frame(
+            &source,
+            2,
+            1,
+            8,
+            PixelFormat::BgrA32,
+            &[(0, 0, 2, 1)],
+            &snapshot((2, 1), (1, 1)),
+        )
+        .expect("scaled frame prepares");
+
+        assert_eq!(&prepared.data[0..4], &[128, 128, 128, 255]);
+    }
+
+    #[test]
+    fn capture_scale_downscale_partitions_non_integer_ratio_without_dropping_pixels() {
+        let mut source = vec![0u8; 12];
+        source[0..4].copy_from_slice(&[0, 0, 0, 255]);
+        source[4..8].copy_from_slice(&[100, 100, 100, 255]);
+        source[8..12].copy_from_slice(&[200, 200, 200, 255]);
+
+        let prepared = prepare_presentation_frame(
+            &source,
+            3,
+            1,
+            12,
+            PixelFormat::BgrA32,
+            &[(0, 0, 3, 1)],
+            &snapshot((3, 1), (2, 1)),
+        )
+        .expect("scaled frame prepares");
+
+        assert_eq!(&prepared.data[0..4], &[0, 0, 0, 255]);
+        assert_eq!(&prepared.data[4..8], &[150, 150, 150, 255]);
+    }
+
+    #[test]
+    fn capture_scale_downscale_averages_both_axes_without_reading_stride_padding() {
+        let mut source = vec![0xee; 24];
+        source[0..4].copy_from_slice(&[0, 0, 0, 255]);
+        source[4..8].copy_from_slice(&[64, 64, 64, 255]);
+        source[12..16].copy_from_slice(&[128, 128, 128, 255]);
+        source[16..20].copy_from_slice(&[255, 255, 255, 255]);
+
+        let prepared = prepare_presentation_frame(
+            &source,
+            2,
+            2,
+            12,
+            PixelFormat::BgrA32,
+            &[(0, 0, 2, 2)],
+            &snapshot((2, 2), (1, 1)),
+        )
+        .expect("scaled frame prepares");
+
+        assert_eq!(&prepared.data[0..4], &[112, 112, 112, 255]);
+    }
+
+    #[test]
+    fn capture_scale_upscale_keeps_nearest_sampled_pixels() {
+        let mut source = vec![0u8; 8];
+        source[0..4].copy_from_slice(&[10, 20, 30, 255]);
+        source[4..8].copy_from_slice(&[110, 120, 130, 255]);
+
+        let prepared = prepare_presentation_frame(
+            &source,
+            2,
+            1,
+            8,
+            PixelFormat::BgrA32,
+            &[(0, 0, 2, 1)],
+            &snapshot((2, 1), (4, 2)),
+        )
+        .expect("scaled frame prepares");
+
+        let expected_row = [
+            10, 20, 30, 255, 10, 20, 30, 255, 110, 120, 130, 255, 110, 120, 130, 255,
+        ];
+        assert_eq!(&prepared.data[0..16], &expected_row);
+        assert_eq!(&prepared.data[16..32], &expected_row);
+    }
+
+    #[test]
+    fn capture_scale_rejects_stride_shorter_than_source_row() {
+        let error = prepare_presentation_frame(
+            &[0; 8],
+            2,
+            1,
+            4,
+            PixelFormat::BgrA32,
+            &[(0, 0, 2, 1)],
+            &snapshot((2, 1), (1, 1)),
+        )
+        .err()
+        .expect("short source stride must fail");
+
+        assert_eq!(error.to_string(), "source stride 4 too small for width 2");
+    }
+
+    #[test]
+    fn capture_scale_maps_damage_before_frame_processor() {
+        let source = frame(4, 2, 16);
+        let prepared = prepare_presentation_frame(
+            &source,
+            4,
+            2,
+            16,
+            PixelFormat::BgrX32,
+            &[(1, 0, 1, 1)],
+            &snapshot((4, 2), (8, 4)),
+        )
+        .expect("scaled frame prepares");
+
+        assert_eq!(prepared.damage_regions, vec![(2, 0, 2, 2)]);
+    }
+
+    #[test]
+    fn dmabuf_scaled_output_guard_rejects_non_identity_geometry() {
+        assert!(dmabuf_zero_copy_allowed(&snapshot(
+            (1920, 1080),
+            (1920, 1080)
+        )));
+        assert!(!dmabuf_zero_copy_allowed(&snapshot(
+            (3840, 2160),
+            (1920, 1080)
+        )));
+        assert!(!dmabuf_zero_copy_allowed(&snapshot(
+            (1920, 1080),
+            (1024, 768)
+        )));
+    }
+
+    #[test]
+    fn capture_scale_reports_presentation_frame_shape_before_frame_processor() {
+        assert_eq!(
+            presentation_frame_shape(3840, 2160, 3840 * 4, &snapshot((3840, 2160), (1920, 1080)))
+                .expect("shape"),
+            (1920, 1080, 1920 * 4)
+        );
+    }
+
+    #[test]
+    fn output_downscaling_generation_forces_full_redraw_and_discards_stale_mapped_damage() {
+        let source = frame(4, 2, 16);
+        let prepared = prepare_presentation_frame(
+            &source,
+            4,
+            2,
+            16,
+            PixelFormat::BgrX32,
+            &[(1, 0, 1, 1)],
+            &snapshot((4, 2), (8, 4)),
+        )
+        .expect("scaled frame prepares");
+
+        assert_eq!(prepared.damage_regions, vec![(2, 0, 2, 2)]);
+
+        let action = output_downscaling_generation_action(6, &prepared);
+
+        assert!(action.refresh_processor);
+        assert_eq!(action.next_generation, 7);
+        assert_eq!(action.damage_regions, vec![(0, 0, 8, 4)]);
+    }
+
+    #[test]
+    fn output_downscaling_generation_reuses_current_generation_damage_without_incrementing() {
+        let source = frame(4, 2, 16);
+        let prepared = prepare_presentation_frame(
+            &source,
+            4,
+            2,
+            16,
+            PixelFormat::BgrX32,
+            &[(1, 0, 1, 1)],
+            &snapshot((4, 2), (8, 4)),
+        )
+        .expect("scaled frame prepares");
+
+        let action = output_downscaling_generation_action(7, &prepared);
+
+        assert!(!action.refresh_processor);
+        assert_eq!(action.next_generation, 7);
+        assert_eq!(action.damage_regions, vec![(2, 0, 2, 2)]);
+    }
+}

@@ -1,0 +1,9 @@
+[package]
+name = "windowlink-shared"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "windowlink_shared"
+path = "src/lib.rs"

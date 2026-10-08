@@ -1,0 +1,27 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application
+        android:label="OmaLink"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen"
+        android:hasCode="true">
+        <provider android:name=".WindowLinkShareProvider" android:authorities="dev.windowlink.client.share" android:exported="false" android:grantUriPermissions="true" />
+        <activity
+            android:name=".WindowLinkActivity"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:launchMode="singleTask"
+            android:exported="true"
+            android:label="OmaLink">
+            <meta-data android:name="android.app.lib_name" android:value="windowlink_android" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="*/*" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,45 @@
+# Rust build artifacts
+**/target/
+
+# Gradle / Android build outputs
+**/.gradle/
+**/build/
+**/local.properties
+
+# Legacy native output; current builds generate all libraries under app/build.
+android/app/src/main/jniLibs/
+
+# Bundled toolchains and SDKs (large, reproducible)
+tools/android-sdk/
+tools/rustup/
+tools/gradle/
+tools/java/
+tools/platform-tools/
+
+# Local scratch
+grok-task.txt
+*.log
+
+# cargo caches accidentally inside tools/
+tools/cargo/
+
+# Private runtime data and release outputs
+*.keystore
+*.jks
+*.p12
+*.pem
+*.key
+*.apk
+*.aab
+*.zip
+/dist/
+/private/
+.env
+.env.*
+windowlink-connections.json
+windowlink-settings.json
+windowlink-main-endpoint.json
+*.password
+
+# Public certificates and keys used by upstream tests, not runtime credentials.
+!vendor/ironrdp/**/tests/certs/*.pem

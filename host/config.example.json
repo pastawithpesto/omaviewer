@@ -1,0 +1,19 @@
+{
+  "bind": "0.0.0.0:3389",
+  "tailscale": false,
+  "control_bind": null,
+  "control_port": 3391,
+  "username": "windowlink",
+  "backend": "hypr-rdp",
+  "output": null,
+  "window": null,
+  "runtime_dir": null,
+  "password_file": null,
+  "endpoint_file": null,
+  "fps": 30,
+  "bitrate": 10000000,
+  "text_clipboard_max_bytes": 1048576,
+  "image_clipboard_max_bytes": 33554432,
+  "transfer_chunk_max_bytes": 4194304,
+  "terminal_history_lines": 10000
+}

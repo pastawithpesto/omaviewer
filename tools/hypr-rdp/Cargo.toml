@@ -1,0 +1,84 @@
+[package]
+name = "hypr-rdp"
+version = "0.1.6"
+edition = "2021"
+description = "Native RDP server for Hyprland"
+license = "MIT"
+
+[features]
+# Standard builds include VA-API and inbound file clipboard support.
+# Use --no-default-features --features client-to-server for software encoding
+# with inbound file transfer, or --no-default-features to omit both.
+default = ["vaapi", "client-to-server"]
+vaapi = ["dep:libva-sys"]
+client-to-server = ["dep:fuser"]
+
+[dependencies]
+# VA-API hardware encoding (Intel/AMD)
+libva-sys = { version = "0.1.2", optional = true, features = ["drm"] }
+# RDP server dependencies; pin a known revision for reproducible builds.
+ironrdp-server = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387", features = ["egfx", "helper"] }
+ironrdp-pdu = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+ironrdp-egfx = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+ironrdp-dvc = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+ironrdp-svc = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+ironrdp-cliprdr = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+ironrdp-rdpsnd = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+ironrdp-core = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+ironrdp-displaycontrol = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+ironrdp-graphics = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+
+# H.264 software codec compiled into the binary.
+openh264 = { version = "0.9", default-features = false, features = ["source"] }
+openh264-sys2 = "0.9"
+yuv = "0.8.14"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "ring"] }
+async-trait = "0.1"
+
+# Wayland client
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "unstable", "staging"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+wayland-scanner = "0.31"
+
+# PipeWire audio capture
+pipewire = "0.9"
+
+# System
+libc = "0.2"
+pam-client = { version = "0.5.0", default-features = false }
+
+# TLS auto-cert generation
+# RSA key generation requires rcgen's aws-lc backend.
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "pem", "aws_lc_rs"] }
+
+# Clipboard image support (DIB/PNG conversion)
+ironrdp-cliprdr-format = { git = "https://github.com/Devolutions/IronRDP.git", rev = "5198cde0f73485f3fbd999ea7c49293c86b80387" }
+
+# Config file
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# Utilities
+anyhow = "1"
+bytes = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+xkbcommon = "0.9.0"
+serde_json = "1"
+rustls = { version = "0.23", default-features = false }
+url = "2"
+fuser = { version = "0.18", default-features = false, optional = true }
+
+[dev-dependencies]
+png = "0.18.1"
+proptest = "1"
+
+[build-dependencies]
+# pam-sys uses bindgen 0.69 without default features. Match PipeWire's
+# clang-sys runtime loading so this bindgen instance loads libclang too.
+bindgen = { version = "0.69", default-features = false, features = ["runtime"] }

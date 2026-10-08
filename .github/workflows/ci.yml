@@ -1,0 +1,64 @@
+name: Build and test
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang libclang-dev cmake nasm pkg-config libssl-dev libpipewire-0.3-dev libva-dev libxkbcommon-dev libwayland-dev libgbm-dev libpam0g-dev tmux
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            host
+            shared
+            android
+            tools/hypr-rdp
+      - name: Tests
+        run: |
+          cargo test --locked --manifest-path shared/Cargo.toml
+          cargo test --locked --manifest-path host/Cargo.toml
+          cargo test --locked --manifest-path android/Cargo.toml --lib
+          cargo test --locked --manifest-path tools/hypr-rdp/Cargo.toml
+      - name: Host and capture backend
+        run: |
+          cargo build --release --locked --manifest-path host/Cargo.toml
+          cargo build --release --locked --manifest-path tools/hypr-rdp/Cargo.toml
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: android
+      - name: Install Android build tools
+        run: |
+          sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018'
+          cargo install cargo-ndk --version 4.1.2 --locked
+      - name: Build ARM64 APK
+        run: ./tools/build-android.sh

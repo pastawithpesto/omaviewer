@@ -1,0 +1,9 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public upstream IronRDP TLS test fixtures, never deployment keys"
+paths = [
+  '''(^|/)vendor/ironrdp/crates/ironrdp-testsuite-extra/tests/certs/server-key\.pem$''',
+  '''(^|/)vendor/ironrdp/crates/ironrdp-tls/tests/certs/server-key\.pem$''',
+]
