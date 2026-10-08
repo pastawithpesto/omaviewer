@@ -61,4 +61,6 @@ jobs:
           sdkmanager 'platforms;android-35' 'build-tools;35.0.0' 'ndk;27.2.12479018'
           cargo install cargo-ndk --version 4.1.2 --locked
       - name: Build ARM64 APK
-        run: ./tools/build-android.sh
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          ./tools/build-android.sh

@@ -6,6 +6,11 @@ Open one window or a whole monitor, use persistent terminals, and move files bet
 
 **Early preview.** Built for Omarchy with Hyprland. Android 8 or newer is required; ARM64 is the tested phone architecture.
 
+<p>
+  <img src="docs/screenshots/welcome.png" width="260" alt="OmaLink desktop setup on Android">
+  <img src="docs/screenshots/settings.png" width="260" alt="OmaLink appearance and terminal settings">
+</p>
+
 ## Features
 
 - Window previews, direct window capture, monitor selection and adaptive video
