@@ -4,8 +4,6 @@ OmaLink lets you control your Omarchy computer from an Android phone.
 
 View one window or a full monitor. Use the phone to enter text, run terminal commands, and transfer files.
 
-This version is a test release.
-
 ## Requirements
 
 - An Omarchy computer with an active Hyprland session
@@ -90,7 +88,7 @@ This repository includes the modified Hypr-RDP source. It does not need a separa
 
 Keep the host output private. It contains the connection password.
 
-The APK uses a debug signing key. It is a test build.
+The APK uses a debug signing key.
 
 ## Settings
 

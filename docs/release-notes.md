@@ -1,4 +1,4 @@
-# OmaLink 0.1.0 test release
+# OmaLink 0.1.0
 
 OmaLink lets you control your Omarchy computer from an Android phone.
 
@@ -18,7 +18,7 @@ OmaLink lets you control your Omarchy computer from an Android phone.
 
 Follow the [README](../README.md) to build and install the software. The default connection method uses Tailscale on both devices.
 
-This is a test release. Some dialog windows need separate selection. Clipboard and file transfer functions need more phone tests. Rotation during startup can require an app restart.
+Some dialog windows need separate selection. Clipboard and file transfer functions need more phone tests. Rotation during startup can require an app restart.
 
 See the [test report](phone-test.md) for results and known problems.
 

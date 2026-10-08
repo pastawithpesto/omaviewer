@@ -1,6 +1,6 @@
 # Change log
 
-## 0.1.0 test release
+## 0.1.0
 
 Prepared the first source release for Omarchy and Android.
 
