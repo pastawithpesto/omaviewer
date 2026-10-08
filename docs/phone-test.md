@@ -2,6 +2,7 @@
 
 ## Early preview validation
 
+- Host release, customized backend release and ARM64 debug APK builds passed from the clean checkout. GitHub Actions has not been run because the repository remains local.
 - The clean Git checkout passed 832 Rust tests: 69 Android, 33 host, 21 shared and 709 backend. Four backend tests that need specific hardware or mounts were ignored. Toolchains and dependency/build caches were supplied externally; no SDK or build output is part of the checkout.
 - 69 Android, 33 host and 21 shared Rust tests passed before release preparation.
 - The ARM64 APK was installed on a physical Motorola phone over Wi-Fi ADB.
