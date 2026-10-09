@@ -14,4 +14,6 @@ The Hypr-RDP snapshot starts from commit `7817f2d73db1c141cf02fc68ca5af9c35636e2
 
 The vendored IronRDP snapshot includes local framebuffer/codec fixes. The original import did not record a verifiable upstream revision. This release preserves the imported sources and license files instead of claiming an upstream commit. Cargo lockfiles pin fetched dependencies.
 
-Binary releases must also include dependency license texts. The Android NDK C++ runtime notices must accompany APK distribution. This source repository does not include downloaded installers or private signing keys.
+The APK includes [dependency license texts](android/app/src/main/assets/THIRD_PARTY_LICENSES.txt), font notices, and Android NDK notices. Cargo-about 0.9.2 collected the Cargo license texts for the ARM64 Android target. Update this file when the packaged dependencies change.
+
+This source repository does not include downloaded installers or private signing keys.

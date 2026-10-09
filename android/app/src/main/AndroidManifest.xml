@@ -2,6 +2,8 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="OmaLink"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar.Fullscreen"
         android:hasCode="true">
         <provider android:name=".WindowLinkShareProvider" android:authorities="dev.windowlink.client.share" android:exported="false" android:grantUriPermissions="true" />

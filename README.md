@@ -1,5 +1,7 @@
 # OmaLink
 
+<img src="docs/branding/omalink-logo-v1.png" width="160" alt="OmaLink logo">
+
 Control your Omarchy computer from an Android phone.
 
 - View one window or a full monitor.

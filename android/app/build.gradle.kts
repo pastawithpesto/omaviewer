@@ -32,7 +32,7 @@ android {
         // API 35 enforces edge-to-edge; NativeActivity's egui window does not apply
         // Android view insets yet, so target 34 to keep controls below system bars.
         targetSdk = 34
-        versionCode = 1
+        versionCode = 2
         versionName = "0.1.0"
         ndk { abiFilters += androidAbis }
     }
