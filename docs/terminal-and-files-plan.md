@@ -56,7 +56,7 @@ Detailed work packages:
 - Upload and download files, create folders, and transfer folder contents recursively
 - Let users choose the destination. Terminal Attach uses the selected working folder when known, otherwise the last chosen destination
 - After upload, offer Insert path. Quote paths for the active shell; leave execution to the user
-- Reuse the Android document picker and add Share to OmaLink. Text paste remains direct; clipboard file support depends on Android and the source app
+- Reuse the Android document picker and add Share to OmaViewer. Text paste remains direct; clipboard file support depends on Android and the source app
 - Stream data with bounded memory. Replace the current 100 MiB whole-file limit and support progress, cancellation and resumable transfers
 - Preserve explicit conflict choices: replace, keep both or skip. Stage uploads beside the destination and finalize only after completion
 - Handle symlinks deliberately, prevent recursive loops, and transfer regular files without reading devices or special files

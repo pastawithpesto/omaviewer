@@ -1,6 +1,6 @@
-# OmaLink
+# OmaViewer
 
-<img src="docs/branding/omalink-logo-v1.png" width="160" alt="OmaLink logo">
+<img src="docs/branding/omaviewer-logo-v1.png" width="160" alt="OmaViewer logo">
 
 Control your Omarchy computer from an Android phone.
 
@@ -16,8 +16,10 @@ Requires Omarchy and Android 8 or later. The default connection method uses Tail
 [Setup](docs/setup.md) | [Build instructions](docs/build-portability.md) | [Settings](host/README.md) | [Known issues](docs/phone-test.md)
 
 <p>
-  <img src="docs/screenshots/welcome.png" width="260" alt="OmaLink connection settings">
-  <img src="docs/screenshots/settings.png" width="260" alt="OmaLink display and terminal settings">
+  <img src="docs/screenshots/ghostty-omarchy.png" width="260" alt="Omarchy in Ghostty on Android">
 </p>
 
-OmaLink uses the [MIT license](LICENSE). Included projects keep their own [licenses](THIRD_PARTY_NOTICES.md).
+<img src="docs/screenshots/system-monitor.png" width="700" alt="Live system monitor on Android">
+
+
+OmaViewer uses the [MIT license](LICENSE). Included projects keep their own [licenses](THIRD_PARTY_NOTICES.md).

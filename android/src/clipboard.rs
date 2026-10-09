@@ -74,7 +74,7 @@ impl AndroidClipboard {
                     &[JValue::Object(&service_name)],
                 )?
                 .l()?;
-            let label = env.new_string("OmaLink")?;
+            let label = env.new_string("OmaViewer")?;
             let clip_text = env.new_string(text)?;
             let clip_data = env
                 .call_static_method(

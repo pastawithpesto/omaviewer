@@ -22,7 +22,7 @@ Automatic sync does not promise clipboard access while Android has the app in th
 
 ## Integrated sharing
 
-- Add Android Share to OmaLink for one or multiple files and images, including shares received while the activity is already open
+- Add Android Share to OmaViewer for one or multiple files and images, including shares received while the activity is already open
 - Route Share, Attach and the Files view through one transfer queue with a visible destination and inline progress
 - Preserve URI read grants for their valid lifetime. Copy to bounded staging storage when a grant cannot survive the required transfer lifetime
 - Offer received files through Android Save or Share. Do not assume a content URI is a filesystem path

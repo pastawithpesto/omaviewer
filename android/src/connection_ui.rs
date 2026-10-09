@@ -7,7 +7,7 @@ impl WindowLinkApp {
         egui::Frame::new().inner_margin(18.0).show(ui, |ui| {
             ui.set_width((width - 36.0).max(1.0));
             ui.horizontal(|ui| {
-                ui.label(RichText::new("OMALINK").strong().color(palette.accent));
+                ui.label(RichText::new("OMAVIEWER").strong().color(palette.accent));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     self.settings_menu(ui)
                 });
@@ -175,7 +175,7 @@ impl WindowLinkApp {
                 }
                 ui.collapsing("Setup help", |ui| {
                     ui.label(
-                        "Use the Tailscale address and password from OmaLink on your computer.",
+                        "Use the Tailscale address and password from OmaViewer on your computer.",
                     );
                 });
             }

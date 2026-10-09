@@ -102,7 +102,7 @@ pub fn default_config_path() -> Result<PathBuf, String> {
     if !base.is_absolute() {
         return Err("XDG_CONFIG_HOME must be absolute".into());
     }
-    Ok(base.join("omalink/host.json"))
+    Ok(base.join("omaviewer/host.json"))
 }
 
 impl HostConfig {
@@ -278,7 +278,7 @@ impl HostConfig {
                 .map(PathBuf::from)
         }) {
             Some(path) => path,
-            None => home_dir()?.join(".cache/omalink/runtime"),
+            None => home_dir()?.join(".cache/omaviewer/runtime"),
         };
         if !path.is_absolute() || path.to_str().is_none() {
             return Err("runtime directory must be an absolute UTF-8 path".into());
@@ -418,7 +418,7 @@ mod tests {
     }
     #[test]
     fn loads_explicit_file_with_cli_precedence() {
-        let path = env::temp_dir().join(format!("omalink-config-test-{}.json", std::process::id()));
+        let path = env::temp_dir().join(format!("omaviewer-config-test-{}.json", std::process::id()));
         let mut file = fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -444,7 +444,7 @@ mod tests {
     }
     #[test]
     fn runtime_directory_is_private_and_rejects_symlinks() {
-        let base = env::temp_dir().join(format!("omalink-runtime-test-{}", std::process::id()));
+        let base = env::temp_dir().join(format!("omaviewer-runtime-test-{}", std::process::id()));
         fs::DirBuilder::new().mode(0o700).create(&base).unwrap();
         let path = base.join("runtime");
         let cfg = HostConfig {

@@ -183,7 +183,7 @@ public final class WindowLinkActivity extends NativeActivity {
             } finally { temporary.delete(); }
         }
         Uri uri = new Uri.Builder().scheme("content").authority(getPackageName() + ".share").appendPath(image.getName()).build();
-        manager.setPrimaryClip(ClipData.newUri(getContentResolver(), "OmaLink image", uri));
+        manager.setPrimaryClip(ClipData.newUri(getContentResolver(), "OmaViewer image", uri));
     }
 
     private static final int PICK_UPLOAD = 4101;

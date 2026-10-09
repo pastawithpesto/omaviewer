@@ -1,4 +1,4 @@
-# OmaLink Android client
+# OmaViewer Android client
 
 Rust egui/eframe NativeActivity using IronRDP, with a Java bridge for Android clipboard, keyboard and document access.
 

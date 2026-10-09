@@ -1,4 +1,4 @@
-# Building and installing OmaLink on another machine
+# Building and installing OmaViewer on another machine
 
 The binaries keep their existing names: `windowlink-host`, `hypr-rdp`, and
 `app-debug.apk`. Build scripts resolve tools from the environment or system,

@@ -20,8 +20,8 @@ clipboard utilities. File and terminal requests run as the current desktop
 user. Connection addresses, account names, storage paths, and backend paths
 are configurable; no developer username or home directory is required.
 
-Settings load from `$XDG_CONFIG_HOME/omalink/host.json`, falling back to
-`~/.config/omalink/host.json`. A missing default file uses built-in defaults.
+Settings load from `$XDG_CONFIG_HOME/omaviewer/host.json`, falling back to
+`~/.config/omaviewer/host.json`. A missing default file uses built-in defaults.
 `--config FILE` selects a required JSON file; unknown keys, malformed values,
 and out-of-range settings fail before server startup. CLI options override
 JSON values. `check` prints JSON capabilities and dependency errors even if Hyprland or the
@@ -41,7 +41,7 @@ windowlink-host serve --config ./host.json --bind 192.168.1.20:3389 \
   --control-bind 192.168.1.20 --username alice --fps 60 --bitrate 20000000
 
 # Installed backend at a custom location.
-windowlink-host check --backend /opt/omalink/bin/hypr-rdp
+windowlink-host check --backend /opt/omaviewer/bin/hypr-rdp
 ```
 
 | JSON key | CLI option | Default / meaning |
@@ -53,7 +53,7 @@ windowlink-host check --backend /opt/omalink/bin/hypr-rdp
 | `username` | `--username NAME` | `windowlink` |
 | `backend` | `--backend PATH` | `hypr-rdp`, resolved through `PATH`; explicit path also accepted |
 | `output` / `window` | `--output NAME` / `--window ADDRESS` | `null`; focused monitor; choose one |
-| `runtime_dir` | `--runtime-dir DIR` | `$XDG_RUNTIME_DIR`, otherwise `~/.cache/omalink/runtime` |
+| `runtime_dir` | `--runtime-dir DIR` | `$XDG_RUNTIME_DIR`, otherwise `~/.cache/omaviewer/runtime` |
 | `password_file` | `--password-file FILE` | `windowlink-hypr-rdp.password` inside runtime directory |
 | `endpoint_file` | `--endpoint-file FILE` | `windowlink-main-endpoint.json` inside runtime directory |
 | `fps` | `--fps N` | `30`; 1 to 240 frames/second |

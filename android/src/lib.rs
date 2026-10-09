@@ -215,7 +215,7 @@ pub fn android_main(app: android_activity::AndroidApp) {
         android_logger::init_once(
             Config::default()
                 .with_max_level(log::LevelFilter::Warn)
-                .with_tag("OmaLink"),
+                .with_tag("OmaViewer"),
         );
     }
     let android_clipboard = clipboard::AndroidClipboard::new(app.clone());
@@ -225,7 +225,7 @@ pub fn android_main(app: android_activity::AndroidApp) {
         ..Default::default()
     };
     let result = eframe::run_native(
-        "OmaLink",
+        "OmaViewer",
         options,
         Box::new(move |cc| {
             terminal::install_font(&cc.egui_ctx);
@@ -517,7 +517,7 @@ impl WindowLinkApp {
             .with_password(password.clone())
             .with_client_build(2600)
             .with_client_dir("C:\\")
-            .with_client_name("OmaLink Android")
+            .with_client_name("OmaViewer Android")
             .with_platform(MajorPlatformType::WINDOWS)
             .with_desktop_width(1280)
             .with_desktop_height(720)
@@ -971,7 +971,7 @@ impl WindowLinkApp {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
                     ui.label(
-                        RichText::new("OMALINK")
+                        RichText::new("OMAVIEWER")
                             .size(17.0)
                             .strong()
                             .color(palette.accent),

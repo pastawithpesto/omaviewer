@@ -60,7 +60,7 @@ This repository includes the modified Hypr-RDP source. It does not need a separa
    ```
 
 5. Read the address, username, password, and control port from the host output.
-6. Enter these values in OmaLink on the phone.
+6. Enter these values in OmaViewer on the phone.
 
 Keep the host output private. It contains the connection password.
 
@@ -70,7 +70,7 @@ The APK uses a debug signing key.
 
 Use **Settings** on the phone to change its display, terminal, clipboard, and file transfer settings.
 
-Host settings use `~/.config/omalink/host.json` by default. If `XDG_CONFIG_HOME` is set, they use `$XDG_CONFIG_HOME/omalink/host.json`.
+Host settings use `~/.config/omaviewer/host.json` by default. If `XDG_CONFIG_HOME` is set, they use `$XDG_CONFIG_HOME/omaviewer/host.json`.
 
 Copy the [example file](../host/config.example.json) to this location. Change the values as necessary. Command-line options take priority over file settings.
 

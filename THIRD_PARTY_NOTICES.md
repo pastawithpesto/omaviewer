@@ -1,6 +1,6 @@
 # Third-party notices
 
-OmaLink reuses the following projects. Their copyright and license files are retained.
+OmaViewer reuses the following projects. Their copyright and license files are retained.
 
 | Component | Source | License and local notice |
 | --- | --- | --- |
@@ -10,7 +10,7 @@ OmaLink reuses the following projects. Their copyright and license files are ret
 | egui and eframe | [emilk/egui](https://github.com/emilk/egui) | MIT OR Apache-2.0; pinned by `android/Cargo.lock` |
 | JetBrains Mono Nerd Font | [Nerd Fonts](https://github.com/ryanoasis/nerd-fonts) | SIL Open Font License; [OFL](android/assets/fonts/OFL.txt) |
 
-The Hypr-RDP snapshot starts from commit `7817f2d73db1c141cf02fc68ca5af9c35636e237` plus OmaLink's local capture, input, adaptive-streaming and compatibility changes. The changes are included as ordinary source files. Its upstream README describes upstream behavior; OmaLink's root README is the setup entry point.
+The Hypr-RDP snapshot starts from commit `7817f2d73db1c141cf02fc68ca5af9c35636e237` plus OmaViewer's local capture, input, adaptive-streaming and compatibility changes. The changes are included as ordinary source files. Its upstream README describes upstream behavior; OmaViewer's root README is the setup entry point.
 
 The vendored IronRDP snapshot includes local framebuffer/codec fixes. The original import did not record a verifiable upstream revision. This release preserves the imported sources and license files instead of claiming an upstream commit. Cargo lockfiles pin fetched dependencies.
 

@@ -1,4 +1,4 @@
-# OmaLink 0.1.0
+# OmaViewer 0.1.0
 
 Control your Omarchy computer from Android. View windows, use desktop keys, run terminal sessions, and transfer files.
 
